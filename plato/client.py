@@ -35,7 +35,8 @@ class PlatoClient:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
-            timeout=30.0,
+            # 10s to establish connection, 60s to receive response
+            timeout=httpx.Timeout(60.0, connect=10.0),
         )
 
     async def __aenter__(self) -> PlatoClient:
@@ -73,9 +74,13 @@ class PlatoClient:
 
             try:
                 response = await self._http.request(method, url, **kwargs)
+            except httpx.TimeoutException as exc:
+                # Don't retry timeouts — Plato is slow; retrying just multiplies the wait
+                logger.error("Timeout calling %s %s after attempt %d: %s", method, url, attempt + 1, exc)
+                raise PlatoAPIError(f"Plato API timed out ({method} {url})", status_code=504)
             except httpx.RequestError as exc:
                 last_error = PlatoAPIError(f"Network error: {exc}")
-                logger.error("Request error for %s %s: %s", method, url, exc)
+                logger.error("Network error for %s %s: %s", method, url, exc)
                 continue
 
             if response.status_code in (401, 403):
@@ -88,18 +93,26 @@ class PlatoClient:
                     f"Not found: {path}", status_code=404
                 )
             if response.status_code in _RETRY_STATUSES and attempt < _MAX_RETRIES:
+                logger.warning(
+                    "HTTP %d from Plato (attempt %d), retrying: %s",
+                    response.status_code, attempt + 1, response.text[:200],
+                )
                 last_error = PlatoAPIError(
                     f"HTTP {response.status_code}: {response.text[:200]}",
                     status_code=response.status_code,
                 )
                 continue
             if response.status_code >= 400:
+                logger.error(
+                    "HTTP %d from Plato %s %s: %s",
+                    response.status_code, method, url, response.text[:500],
+                )
                 raise PlatoAPIError(
                     f"HTTP {response.status_code}: {response.text[:200]}",
                     status_code=response.status_code,
                 )
 
-            logger.debug("%s %s -> %d", method, url, response.status_code)
+            logger.info("%s %s -> %d", method, url, response.status_code)
             return response.json()
 
         raise last_error or PlatoAPIError(f"Request failed after {_MAX_RETRIES} retries")
@@ -147,7 +160,10 @@ class PlatoClient:
             min_days=min_days,
             max_days=max_days,
         )
-        data = await self._request("POST", "appointment/slots", json=payload.model_dump())
+        dumped = payload.model_dump()
+        logger.info("Slots request payload: %s", dumped)
+        data = await self._request("POST", "appointment/slots", json=dumped)
+        logger.info("Slots raw response type=%s value=%s", type(data).__name__, str(data)[:300])
         raw: list[Any] = data if isinstance(data, list) else data.get("slots", [])
 
         result: list[datetime] = []
