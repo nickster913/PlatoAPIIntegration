@@ -10,7 +10,7 @@ class PlatoSettings:
         )
     )
     token: str = field(default_factory=lambda: os.getenv("PLATO_API_TOKEN", ""))
-    db_name: str = field(default_factory=lambda: os.getenv("PLATO_DB_NAME", ""))
+    db_name: str = field(default_factory=lambda: os.getenv("PLATO_DB_NAME", "zolin"))
 
 
 settings = PlatoSettings()
