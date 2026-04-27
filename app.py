@@ -56,30 +56,16 @@ async def list_calendars():
         raise _http_error(exc)
 
 
-@app.get("/slots")
-async def get_slots(
-    month: str,
-    calendar_id: str = "LSG9",
-    starttime: str = "09:00",
-    endtime: str = "17:00",
-    interval: int = 15,
-):
-    logger.info(
-        "GET /slots month=%r calendar_id=%r starttime=%r endtime=%r interval=%r",
-        month, calendar_id, starttime, endtime, interval,
-    )
+@app.get("/appointments")
+async def get_appointments(date: str | None = None):
+    logger.info("GET /appointments date=%r", date)
     try:
-        slots = await _client().get_available_slots(
-            month=month,
-            calendar_ids=[calendar_id],
-            start_time=starttime,
-            end_time=endtime,
-            interval=interval,
-        )
-        logger.info("GET /slots -> %d slots returned", len(slots))
-        return [dt.isoformat() for dt in slots]
+        kwargs = {"date": date} if date else {}
+        appointments = await _client().get_appointments(**kwargs)
+        logger.info("GET /appointments -> %d records returned", len(appointments))
+        return appointments
     except PlatoAPIError as exc:
-        logger.error("GET /slots Plato error: %s", exc)
+        logger.error("GET /appointments Plato error: %s", exc)
         raise _http_error(exc)
 
 
@@ -89,14 +75,14 @@ class BookBody(BaseModel):
     description: str
     starttime: str
     endtime: str
-    calendar_id: str = "LSG9"
+    color: str = "LSG9"
 
 
 @app.post("/book")
 async def book_appointment(body: BookBody):
     logger.info(
-        "POST /book patient_id=%r title=%r starttime=%r endtime=%r calendar_id=%r",
-        body.patient_id, body.title, body.starttime, body.endtime, body.calendar_id,
+        "POST /book patient_id=%r title=%r starttime=%r endtime=%r color=%r",
+        body.patient_id, body.title, body.starttime, body.endtime, body.color,
     )
     try:
         result = await _client().create_appointment(
@@ -105,7 +91,7 @@ async def book_appointment(body: BookBody):
             description=body.description,
             start_time=body.starttime,
             end_time=body.endtime,
-            calendar_id=body.calendar_id,
+            color=body.color,
         )
         logger.info("POST /book -> success: %s", result)
         return result

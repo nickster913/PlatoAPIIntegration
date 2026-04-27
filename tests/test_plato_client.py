@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -59,76 +58,33 @@ async def test_get_calendars_wrapped_response(client: PlatoClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# get_available_slots
+# get_appointments
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_get_available_slots_parses_iso_strings(client: PlatoClient) -> None:
-    respx.post(f"{BASE}/appointment/slots").mock(
-        return_value=httpx.Response(
-            200,
-            json=["2026-09-15T09:00:00", "2026-09-15T09:15:00", "2026-09-15T09:30:00"],
-        )
-    )
-    slots = await client.get_available_slots(month="Sep 2026", calendar_ids=["LSG9"])
-    assert len(slots) == 3
-    assert slots[0] == datetime(2026, 9, 15, 9, 0, 0)
+async def test_get_appointments_returns_list(client: PlatoClient) -> None:
+    payload = [
+        {"_id": "appt-1", "title": "John Doe", "starttime": "2026-09-15 09:00:00"},
+        {"_id": "appt-2", "title": "Jane Smith", "starttime": "2026-09-15 10:00:00"},
+    ]
+    respx.get(f"{BASE}/appointment").mock(return_value=httpx.Response(200, json=payload))
+    appointments = await client.get_appointments()
+    assert len(appointments) == 2
+    assert appointments[0]["_id"] == "appt-1"
+    assert appointments[1]["title"] == "Jane Smith"
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_get_available_slots_wrapped_response(client: PlatoClient) -> None:
-    respx.post(f"{BASE}/appointment/slots").mock(
-        return_value=httpx.Response(
-            200, json={"slots": [{"datetime": "2026-09-15T09:00:00"}]}
-        )
+async def test_get_appointments_wrapped_response(client: PlatoClient) -> None:
+    respx.get(f"{BASE}/appointment").mock(
+        return_value=httpx.Response(200, json={"appointments": [{"_id": "appt-1"}]})
     )
-    slots = await client.get_available_slots(month="Sep 2026", calendar_ids=["LSG9"])
-    assert len(slots) == 1
-    assert slots[0] == datetime(2026, 9, 15, 9, 0, 0)
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_available_slots_sends_correct_payload(client: PlatoClient) -> None:
-    route = respx.post(f"{BASE}/appointment/slots").mock(
-        return_value=httpx.Response(200, json=[])
-    )
-    await client.get_available_slots(
-        month="Sep 2026",
-        calendar_ids=["LSG9"],
-        start_time="08:00",
-        end_time="18:00",
-        interval=30,
-        simultaneous=2,
-        min_days=2,
-        max_days=60,
-    )
-    body = route.calls.last.request.content
-    import json
-
-    payload = json.loads(body)
-    assert payload["month"] == "Sep 2026"
-    assert payload["check_for_conflicts"] == ["LSG9"]
-    assert payload["starttime"] == "08:00"
-    assert payload["endtime"] == "18:00"
-    assert payload["interval"] == 30
-    assert payload["simultaneous"] == 2
-    assert payload["min_days"] == 2
-    assert payload["max_days"] == 60
-    assert payload["type"] == "fixed"
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_available_slots_skips_unparseable(client: PlatoClient) -> None:
-    respx.post(f"{BASE}/appointment/slots").mock(
-        return_value=httpx.Response(200, json=["2026-09-15T09:00:00", "not-a-date"])
-    )
-    slots = await client.get_available_slots(month="Sep 2026", calendar_ids=["LSG9"])
-    assert len(slots) == 1
+    appointments = await client.get_appointments()
+    assert len(appointments) == 1
+    assert appointments[0]["_id"] == "appt-1"
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +96,7 @@ async def test_get_available_slots_skips_unparseable(client: PlatoClient) -> Non
 @respx.mock
 async def test_create_appointment_happy_path(client: PlatoClient) -> None:
     expected = {
-        "id": "appt-123",
+        "_id": "appt-123",
         "patient_id": "10CACFF1-9685-274C-A357-C4B20EBD369E",
         "title": "John Doe",
         "description": "Initial consult",
@@ -151,25 +107,25 @@ async def test_create_appointment_happy_path(client: PlatoClient) -> None:
     respx.post(f"{BASE}/appointment").mock(
         return_value=httpx.Response(200, json=expected)
     )
-    appt = await client.create_appointment(
+    result = await client.create_appointment(
         patient_id="10CACFF1-9685-274C-A357-C4B20EBD369E",
         title="John Doe",
         description="Initial consult",
         start_time="2026-09-15 09:00:00",
         end_time="2026-09-15 09:15:00",
-        calendar_id="LSG9",
+        color="LSG9",
     )
-    assert appt.id == "appt-123"
-    assert appt.color == "LSG9"
+    assert result["_id"] == "appt-123"
+    assert result["color"] == "LSG9"
 
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_create_appointment_maps_calendar_id_to_color(client: PlatoClient) -> None:
+async def test_create_appointment_sends_color_in_payload(client: PlatoClient) -> None:
     import json
 
     route = respx.post(f"{BASE}/appointment").mock(
-        return_value=httpx.Response(200, json={"id": "x"})
+        return_value=httpx.Response(200, json={"_id": "x"})
     )
     await client.create_appointment(
         patient_id="pid",
@@ -177,40 +133,11 @@ async def test_create_appointment_maps_calendar_id_to_color(client: PlatoClient)
         description="Checkup",
         start_time="2026-09-15 10:00:00",
         end_time="2026-09-15 10:30:00",
-        calendar_id="AB3X",
+        color="AB3X",
     )
     payload = json.loads(route.calls.last.request.content)
     assert payload["color"] == "AB3X"
     assert "calendar_id" not in payload
-
-
-# ---------------------------------------------------------------------------
-# Online booking
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_online_booking_calendars(client: PlatoClient) -> None:
-    respx.get(f"{BASE}/onlineapptbooking/list").mock(
-        return_value=httpx.Response(200, json=[{"id": "OB1", "name": "Online Booking"}])
-    )
-    cals = await client.get_online_booking_calendars()
-    assert len(cals) == 1
-    assert cals[0].id == "OB1"
-
-
-@pytest.mark.asyncio
-@respx.mock
-async def test_get_online_booking_slots(client: PlatoClient) -> None:
-    respx.get(f"{BASE}/onlineapptbooking/slots").mock(
-        return_value=httpx.Response(
-            200, json=[{"datetime": "2026-09-15T09:00:00"}, {"datetime": "2026-09-15T09:15:00"}]
-        )
-    )
-    slots = await client.get_online_booking_slots(calendar_id="OB1", month="2026-09")
-    assert len(slots) == 2
-    assert slots[0].datetime == "2026-09-15T09:00:00"
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +182,7 @@ async def test_api_error_on_400(client: PlatoClient) -> None:
         await client.create_appointment(
             patient_id="p", title="t", description="d",
             start_time="2026-09-15 09:00:00", end_time="2026-09-15 09:15:00",
-            calendar_id="LSG9",
+            color="LSG9",
         )
     assert exc_info.value.status_code == 400
 
@@ -268,7 +195,7 @@ async def test_api_error_on_400(client: PlatoClient) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_retries_on_429_then_succeeds(client: PlatoClient) -> None:
-    route = respx.post(f"{BASE}/appointment/slots").mock(
+    route = respx.get(f"{BASE}/appointment").mock(
         side_effect=[
             httpx.Response(429),
             httpx.Response(429),
@@ -276,8 +203,8 @@ async def test_retries_on_429_then_succeeds(client: PlatoClient) -> None:
         ]
     )
     with patch("asyncio.sleep", new_callable=AsyncMock):
-        slots = await client.get_available_slots(month="Sep 2026", calendar_ids=["LSG9"])
-    assert slots == []
+        appointments = await client.get_appointments()
+    assert appointments == []
     assert route.call_count == 3
 
 
