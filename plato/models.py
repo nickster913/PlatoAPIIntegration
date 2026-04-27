@@ -11,7 +11,7 @@ class Calendar(BaseModel):
 
 
 class AppointmentRequest(BaseModel):
-    patient_id: str
+    patient_id: str = ""
     title: str
     description: str
     starttime: str

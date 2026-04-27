@@ -70,7 +70,7 @@ async def get_appointments(date: str | None = None):
 
 
 class BookBody(BaseModel):
-    patient_id: str
+    patient_id: str = ""
     title: str
     description: str
     starttime: str
